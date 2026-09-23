@@ -1,0 +1,35 @@
+package com.smarthotel.vo;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+
+@Data
+public class BookingOrderVO {
+
+    private Long orderId;
+
+    private String orderNo;
+
+    private String roomTypeName;
+
+    private Integer roomCount;
+
+    private Integer guestCount;
+
+    private LocalDate checkInDate;
+
+    private LocalDate checkOutDate;
+
+    private Integer nights;
+
+    private BigDecimal totalAmount;
+
+    private String orderStatus;
+
+    private String paymentStatus;
+
+    private LocalDateTime expireTime;
+}
