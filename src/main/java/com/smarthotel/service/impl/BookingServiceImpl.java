@@ -6,16 +6,19 @@ import com.smarthotel.entity.*;
 import com.smarthotel.exception.BusinessException;
 import com.smarthotel.mapper.*;
 import com.smarthotel.service.BookingService;
+import com.smarthotel.service.InventoryRedisService;
 import com.smarthotel.vo.BookingOrderVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
+import com.smarthotel.mapper.PaymentMapper;
 
 @Service
 @RequiredArgsConstructor
@@ -32,6 +35,10 @@ public class BookingServiceImpl implements BookingService {
     private final RoomPriceMapper roomPriceMapper;
 
     private final BookingOrderMapper bookingOrderMapper;
+
+    private final PaymentMapper paymentMapper;
+
+    private final InventoryRedisService inventoryRedisService;
 
     @Override
     @Transactional
@@ -122,6 +129,33 @@ public class BookingServiceImpl implements BookingService {
          * FOR UPDATE 非常关键：
          * 当前事务结束前，其他下单事务不能同时修改这些库存行。
          */
+        /*
+         * 6.1 Redis Lua原子锁库存
+         *
+         * 成功:
+         * 1
+         *
+         * 失败:
+         * -1 库存不足
+         * -2 Redis库存不存在
+         */
+        Long lockResult =
+                inventoryRedisService.lockInventory(
+                        request.getRoomTypeId(),
+                        request.getCheckInDate(),
+                        request.getCheckOutDate(),
+                        request.getRoomCount()
+                );
+
+
+        if (lockResult == null
+                || lockResult != 1) {
+
+            throw new BusinessException(
+                    409,
+                    "Redis库存不足"
+            );
+        }
         List<RoomInventory> inventories =
                 roomInventoryMapper.selectList(
                         new LambdaQueryWrapper<RoomInventory>()
@@ -296,31 +330,779 @@ public class BookingServiceImpl implements BookingService {
         order.setRemark(
                 request.getRemark()
         );
-
+        //保存订单
         bookingOrderMapper.insert(order);
-
-
         /*
          * 12. 返回订单信息
          */
+
+        //返回订单
+        return toBookingOrderVO(order);
+    }
+
+    /**
+     * 查询当前客户的所有订单
+     */
+    @Override
+    public List<BookingOrderVO> listMyBookings(String username) {
+
+        /*
+         * 1. 根据用户名找到当前登录账号
+         */
+        SysUser user = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUsername, username)
+        );
+
+        if (user == null) {
+            throw new BusinessException(
+                    401,
+                    "当前登录用户不存在"
+            );
+        }
+
+
+        /*
+         * 2. 找到客户档案
+         */
+        Customer customer = customerMapper.selectOne(
+                new LambdaQueryWrapper<Customer>()
+                        .eq(Customer::getUserId, user.getUserId())
+        );
+
+        if (customer == null) {
+            throw new BusinessException(
+                    403,
+                    "当前账号没有客户档案"
+            );
+        }
+
+
+        /*
+         * 3. 只查询这个客户自己的订单
+         *
+         * 按创建时间倒序：
+         * 最新订单放最前面
+         */
+        List<BookingOrder> orders =
+                bookingOrderMapper.selectList(
+                        new LambdaQueryWrapper<BookingOrder>()
+                                .eq(
+                                        BookingOrder::getCustomerId,
+                                        customer.getCustomerId()
+                                )
+                                .orderByDesc(
+                                        BookingOrder::getCreateTime
+                                )
+                );
+
+
+        /*
+         * 4. Entity 转 VO
+         */
+        List<BookingOrderVO> result = new ArrayList<>();
+
+        for (BookingOrder order : orders) {
+            result.add(toBookingOrderVO(order));
+        }
+
+        return result;
+    }
+
+
+    /**
+     * 查询当前客户自己的某一个订单
+     */
+    @Override
+    public BookingOrderVO getMyBooking(
+            String username,
+            Long orderId) {
+
+        /*
+         * 1. 找当前用户
+         */
+        SysUser user = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUsername, username)
+        );
+
+        if (user == null) {
+            throw new BusinessException(
+                    401,
+                    "当前登录用户不存在"
+            );
+        }
+
+
+        /*
+         * 2. 找客户档案
+         */
+        Customer customer = customerMapper.selectOne(
+                new LambdaQueryWrapper<Customer>()
+                        .eq(Customer::getUserId, user.getUserId())
+        );
+
+        if (customer == null) {
+            throw new BusinessException(
+                    403,
+                    "当前账号没有客户档案"
+            );
+        }
+
+
+        /*
+         * 3. 查询订单
+         *
+         * 注意：
+         * 这里不仅根据 orderId 查，
+         * 还必须根据 customerId 查。
+         *
+         * 防止用户查看别人的订单。
+         */
+        BookingOrder order =
+                bookingOrderMapper.selectOne(
+                        new LambdaQueryWrapper<BookingOrder>()
+                                .eq(
+                                        BookingOrder::getOrderId,
+                                        orderId
+                                )
+                                .eq(
+                                        BookingOrder::getCustomerId,
+                                        customer.getCustomerId()
+                                )
+                );
+
+        if (order == null) {
+            throw new BusinessException(
+                    404,
+                    "订单不存在"
+            );
+        }
+
+        return toBookingOrderVO(order);
+    }
+
+
+    /**
+     * BookingOrder Entity 转 BookingOrderVO
+     */
+    private BookingOrderVO toBookingOrderVO(
+            BookingOrder order) {
+
+        RoomType roomType =
+                roomTypeMapper.selectById(
+                        order.getRoomTypeId()
+                );
+
         BookingOrderVO vo =
                 new BookingOrderVO();
 
-        vo.setOrderId(order.getOrderId());
-        vo.setOrderNo(order.getOrderNo());
-        vo.setRoomTypeName(
-                roomType.getTypeName()
+        vo.setOrderId(
+                order.getOrderId()
         );
-        vo.setRoomCount(order.getRoomCount());
-        vo.setGuestCount(order.getGuestCount());
-        vo.setCheckInDate(order.getCheckInDate());
-        vo.setCheckOutDate(order.getCheckOutDate());
-        vo.setNights(order.getNights());
-        vo.setTotalAmount(order.getTotalAmount());
-        vo.setOrderStatus(order.getOrderStatus());
-        vo.setPaymentStatus(order.getPaymentStatus());
-        vo.setExpireTime(order.getExpireTime());
+
+        vo.setOrderNo(
+                order.getOrderNo()
+        );
+
+        vo.setRoomTypeId(
+                order.getRoomTypeId()
+        );
+
+        if (roomType != null) {
+            vo.setRoomTypeName(
+                    roomType.getTypeName()
+            );
+        }
+
+        vo.setRoomCount(
+                order.getRoomCount()
+        );
+
+        vo.setGuestCount(
+                order.getGuestCount()
+        );
+
+        vo.setCheckInDate(
+                order.getCheckInDate()
+        );
+
+        vo.setCheckOutDate(
+                order.getCheckOutDate()
+        );
+
+        vo.setNights(
+                order.getNights()
+        );
+
+        vo.setTotalAmount(
+                order.getTotalAmount()
+        );
+
+        vo.setContactName(
+                order.getContactName()
+        );
+
+        vo.setContactPhone(
+                order.getContactPhone()
+        );
+
+        vo.setOrderStatus(
+                order.getOrderStatus()
+        );
+
+        vo.setPaymentStatus(
+                order.getPaymentStatus()
+        );
+
+        vo.setExpireTime(
+                order.getExpireTime()
+        );
+
+        vo.setRemark(
+                order.getRemark()
+        );
+
+        vo.setCreateTime(
+                order.getCreateTime()
+        );
 
         return vo;
     }
+
+
+    /**
+     * 客户主动取消待支付订单
+     */
+    @Override
+    @Transactional
+    public void cancelMyBooking(
+            String username,
+            Long orderId) {
+
+        /*
+         * 1. 找当前登录用户
+         */
+        SysUser user = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUsername, username)
+        );
+
+        if (user == null) {
+            throw new BusinessException(
+                    401,
+                    "当前登录用户不存在"
+            );
+        }
+
+
+        /*
+         * 2. 找客户档案
+         */
+        Customer customer = customerMapper.selectOne(
+                new LambdaQueryWrapper<Customer>()
+                        .eq(Customer::getUserId, user.getUserId())
+        );
+
+        if (customer == null) {
+            throw new BusinessException(
+                    403,
+                    "当前账号没有客户档案"
+            );
+        }
+
+
+        /*
+         * 3. 查询并锁住订单
+         *
+         * 必须同时检查 customerId，
+         * 防止用户取消别人的订单。
+         */
+        BookingOrder order =
+                bookingOrderMapper.selectOne(
+                        new LambdaQueryWrapper<BookingOrder>()
+                                .eq(
+                                        BookingOrder::getOrderId,
+                                        orderId
+                                )
+                                .eq(
+                                        BookingOrder::getCustomerId,
+                                        customer.getCustomerId()
+                                )
+                                .last("FOR UPDATE")
+                );
+
+        if (order == null) {
+            throw new BusinessException(
+                    404,
+                    "订单不存在"
+            );
+        }
+
+
+        /*
+         * 当前阶段只允许取消 WAIT_PAY 订单
+         */
+        if (!"WAIT_PAY".equals(order.getOrderStatus())) {
+            throw new BusinessException(
+                    400,
+                    "当前订单状态不能取消"
+            );
+        }
+
+
+        /*
+         * 4. 锁住该订单占用的每日库存
+         */
+        List<RoomInventory> inventories =
+                roomInventoryMapper.selectList(
+                        new LambdaQueryWrapper<RoomInventory>()
+                                .eq(
+                                        RoomInventory::getRoomTypeId,
+                                        order.getRoomTypeId()
+                                )
+                                .ge(
+                                        RoomInventory::getInventoryDate,
+                                        order.getCheckInDate()
+                                )
+                                .lt(
+                                        RoomInventory::getInventoryDate,
+                                        order.getCheckOutDate()
+                                )
+                                .orderByAsc(
+                                        RoomInventory::getInventoryDate
+                                )
+                                .last("FOR UPDATE")
+                );
+
+
+        /*
+         * 5. 释放 locked_qty
+         */
+        // Redis恢复库存
+        inventoryRedisService.releaseInventory(
+                order.getRoomTypeId(),
+                order.getCheckInDate(),
+                order.getCheckOutDate(),
+                order.getRoomCount()
+        );
+
+
+        // MySQL恢复库存
+        for (RoomInventory inventory : inventories) {
+
+            int newLockedQty =
+                    inventory.getLockedQty()
+                            - order.getRoomCount();
+
+            /*
+             * 理论上不应该小于0。
+             * 防止测试数据异常导致负库存。
+             */
+            if (newLockedQty < 0) {
+                throw new BusinessException(
+                        500,
+                        "库存锁定数据异常"
+                );
+            }
+
+            inventory.setLockedQty(newLockedQty);
+
+            roomInventoryMapper.updateById(
+                    inventory
+            );
+        }
+
+
+        /*
+         * 6. 修改订单状态
+         */
+        order.setOrderStatus("CANCELLED");
+
+        bookingOrderMapper.updateById(order);
+    }
+
+    /**
+     * 自动关闭已经超过支付时间的订单
+     */
+    @Override
+    @Transactional
+    public void closeExpiredBookings() {
+
+        /*
+         * 1. 找出已经超时但仍处于 WAIT_PAY 的订单
+         */
+        List<BookingOrder> expiredOrders =
+                bookingOrderMapper.selectList(
+                        new LambdaQueryWrapper<BookingOrder>()
+                                .eq(
+                                        BookingOrder::getOrderStatus,
+                                        "WAIT_PAY"
+                                )
+                                .le(
+                                        BookingOrder::getExpireTime,
+                                        LocalDateTime.now()
+                                )
+                );
+
+
+        /*
+         * 2. 一个一个处理
+         */
+        for (BookingOrder order : expiredOrders) {
+
+            /*
+             * 再锁一次订单。
+             *
+             * 这样以后接支付回调时，
+             * 可以降低“支付”和“超时关闭”同时发生的问题。
+             */
+            BookingOrder lockedOrder =
+                    bookingOrderMapper.selectOne(
+                            new LambdaQueryWrapper<BookingOrder>()
+                                    .eq(
+                                            BookingOrder::getOrderId,
+                                            order.getOrderId()
+                                    )
+                                    .last("FOR UPDATE")
+                    );
+
+
+            /*
+             * 订单可能已经被其他逻辑处理
+             */
+            if (lockedOrder == null) {
+                continue;
+            }
+
+            if (!"WAIT_PAY".equals(
+                    lockedOrder.getOrderStatus())) {
+                continue;
+            }
+
+            /*
+             * 再判断一次是否真的超时
+             */
+            if (lockedOrder.getExpireTime()
+                    .isAfter(LocalDateTime.now())) {
+
+                continue;
+            }
+
+
+            /*
+             * 3. 查询并锁定库存
+             */
+            List<RoomInventory> inventories =
+                    roomInventoryMapper.selectList(
+                            new LambdaQueryWrapper<RoomInventory>()
+                                    .eq(
+                                            RoomInventory::getRoomTypeId,
+                                            lockedOrder.getRoomTypeId()
+                                    )
+                                    .ge(
+                                            RoomInventory::getInventoryDate,
+                                            lockedOrder.getCheckInDate()
+                                    )
+                                    .lt(
+                                            RoomInventory::getInventoryDate,
+                                            lockedOrder.getCheckOutDate()
+                                    )
+                                    .orderByAsc(
+                                            RoomInventory::getInventoryDate
+                                    )
+                                    .last("FOR UPDATE")
+                    );
+
+
+            /*
+             * 4. 释放库存
+             */
+            inventoryRedisService.releaseInventory(
+                    lockedOrder.getRoomTypeId(),
+                    lockedOrder.getCheckInDate(),
+                    lockedOrder.getCheckOutDate(),
+                    lockedOrder.getRoomCount()
+            );
+            for (RoomInventory inventory : inventories) {
+
+                int newLockedQty =
+                        inventory.getLockedQty()
+                                - lockedOrder.getRoomCount();
+
+                if (newLockedQty < 0) {
+                    throw new BusinessException(
+                            500,
+                            "库存锁定数据异常"
+                    );
+                }
+
+                inventory.setLockedQty(
+                        newLockedQty
+                );
+
+                roomInventoryMapper.updateById(
+                        inventory
+                );
+            }
+
+
+            /*
+             * 5. WAIT_PAY → CLOSED
+             *
+             * CLOSED 表示：
+             * 因支付超时自动关闭。
+             *
+             * CANCELLED 则表示：
+             * 用户主动取消。
+             */
+            lockedOrder.setOrderStatus("CLOSED");
+
+            bookingOrderMapper.updateById(
+                    lockedOrder
+            );
+        }
+    }
+
+    /**
+     * 开发阶段模拟支付成功
+     *
+     * 后续接支付宝时，
+     * 支付宝异步回调最终也会执行类似的核心逻辑。
+     */
+    @Override
+    @Transactional
+    public BookingOrderVO mockPaySuccess(
+            String username,
+            Long orderId) {
+
+        /*
+         * 1. 当前登录账号
+         */
+        SysUser user = sysUserMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>()
+                        .eq(SysUser::getUsername, username)
+        );
+
+        if (user == null) {
+            throw new BusinessException(
+                    401,
+                    "当前登录用户不存在"
+            );
+        }
+
+
+        /*
+         * 2. 当前客户
+         */
+        Customer customer = customerMapper.selectOne(
+                new LambdaQueryWrapper<Customer>()
+                        .eq(
+                                Customer::getUserId,
+                                user.getUserId()
+                        )
+        );
+
+        if (customer == null) {
+            throw new BusinessException(
+                    403,
+                    "当前账号没有客户档案"
+            );
+        }
+
+
+        /*
+         * 3. 查询并锁住订单
+         *
+         * 同时用 customerId 限制：
+         * 客户只能支付自己的订单。
+         */
+        BookingOrder order =
+                bookingOrderMapper.selectOne(
+                        new LambdaQueryWrapper<BookingOrder>()
+                                .eq(
+                                        BookingOrder::getOrderId,
+                                        orderId
+                                )
+                                .eq(
+                                        BookingOrder::getCustomerId,
+                                        customer.getCustomerId()
+                                )
+                                .last("FOR UPDATE")
+                );
+
+        if (order == null) {
+            throw new BusinessException(
+                    404,
+                    "订单不存在"
+            );
+        }
+
+
+        /*
+         * 4. 幂等判断
+         *
+         * 如果已经支付过，
+         * 不允许再次重复支付。
+         */
+        if ("PAID".equals(
+                order.getPaymentStatus())) {
+
+            throw new BusinessException(
+                    400,
+                    "订单已经支付，请勿重复支付"
+            );
+        }
+
+
+        /*
+         * 5. 只有 WAIT_PAY 才能支付
+         */
+        if (!"WAIT_PAY".equals(
+                order.getOrderStatus())) {
+
+            throw new BusinessException(
+                    400,
+                    "当前订单状态不能支付"
+            );
+        }
+
+
+        /*
+         * 6. 判断是否已经过期
+         */
+        if (order.getExpireTime() != null
+                && order.getExpireTime()
+                .isBefore(LocalDateTime.now())) {
+
+            throw new BusinessException(
+                    400,
+                    "订单已超过支付时间"
+            );
+        }
+
+
+        /*
+         * 7. 查询并锁住这个订单占用的所有库存行
+         */
+        List<RoomInventory> inventories =
+                roomInventoryMapper.selectList(
+                        new LambdaQueryWrapper<RoomInventory>()
+                                .eq(
+                                        RoomInventory::getRoomTypeId,
+                                        order.getRoomTypeId()
+                                )
+                                .ge(
+                                        RoomInventory::getInventoryDate,
+                                        order.getCheckInDate()
+                                )
+                                .lt(
+                                        RoomInventory::getInventoryDate,
+                                        order.getCheckOutDate()
+                                )
+                                .orderByAsc(
+                                        RoomInventory::getInventoryDate
+                                )
+                                .last("FOR UPDATE")
+                );
+
+
+        /*
+         * 必须覆盖整个入住期间。
+         */
+        if (inventories.size()
+                != order.getNights()) {
+
+            throw new BusinessException(
+                    500,
+                    "订单库存数据异常"
+            );
+        }
+
+
+        /*
+         * 8. locked → sold
+         */
+        for (RoomInventory inventory : inventories) {
+
+            if (inventory.getLockedQty()
+                    < order.getRoomCount()) {
+
+                throw new BusinessException(
+                        500,
+                        "库存锁定数量异常"
+                );
+            }
+
+            inventory.setLockedQty(
+                    inventory.getLockedQty()
+                            - order.getRoomCount()
+            );
+
+            inventory.setSoldQty(
+                    inventory.getSoldQty()
+                            + order.getRoomCount()
+            );
+
+            roomInventoryMapper.updateById(
+                    inventory
+            );
+        }
+
+
+        /*
+         * 9. 创建支付记录
+         */
+        Payment payment = new Payment();
+
+        payment.setPaymentNo(
+                UUID.randomUUID()
+                        .toString()
+                        .replace("-", "")
+                        .toUpperCase()
+        );
+
+        payment.setOrderId(
+                order.getOrderId()
+        );
+
+        /*
+         * 当前是模拟支付。
+         *
+         * 将来支付宝：
+         * paymentMethod = ALIPAY
+         */
+        payment.setPaymentMethod("MOCK");
+
+        payment.setAmount(
+                order.getTotalAmount()
+        );
+
+        payment.setPaymentStatus(
+                "SUCCESS"
+        );
+
+        payment.setPaidTime(
+                LocalDateTime.now()
+        );
+
+        paymentMapper.insert(payment);
+
+
+        /*
+         * 10. 修改订单状态
+         */
+        order.setPaymentStatus("PAID");
+
+        order.setOrderStatus("CONFIRMED");
+
+        bookingOrderMapper.updateById(order);
+
+
+        /*
+         * 11. 返回更新后的订单
+         */
+        return toBookingOrderVO(order);
+    }
+
 }

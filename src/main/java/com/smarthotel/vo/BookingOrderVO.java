@@ -13,6 +13,8 @@ public class BookingOrderVO {
 
     private String orderNo;
 
+    private Long roomTypeId;
+
     private String roomTypeName;
 
     private Integer roomCount;
@@ -27,9 +29,17 @@ public class BookingOrderVO {
 
     private BigDecimal totalAmount;
 
+    private String contactName;
+
+    private String contactPhone;
+
     private String orderStatus;
 
     private String paymentStatus;
 
     private LocalDateTime expireTime;
+
+    private String remark;
+
+    private LocalDateTime createTime;
 }
