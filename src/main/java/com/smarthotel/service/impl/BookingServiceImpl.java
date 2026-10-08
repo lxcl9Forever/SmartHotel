@@ -11,6 +11,7 @@ import com.smarthotel.vo.BookingOrderVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.smarthotel.dto.booking.BookingGuestRequest;
 
 import java.util.ArrayList;
 import java.math.BigDecimal;
@@ -19,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import com.smarthotel.mapper.PaymentMapper;
+import com.smarthotel.vo.BookingGuestVO;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +37,8 @@ public class BookingServiceImpl implements BookingService {
     private final RoomPriceMapper roomPriceMapper;
 
     private final BookingOrderMapper bookingOrderMapper;
+
+    private final BookingGuestMapper bookingGuestMapper;
 
     private final PaymentMapper paymentMapper;
 
@@ -122,6 +126,18 @@ public class BookingServiceImpl implements BookingService {
             );
         }
 
+        /*
+         * 入住人数必须和入住人信息数量一致
+         */
+        if (request.getGuests() == null
+                || request.getGuests().size()
+                != request.getGuestCount()) {
+
+            throw new BusinessException(
+                    400,
+                    "入住人信息数量必须与入住人数一致"
+            );
+        }
 
         /*
          * 6. 查询并锁住入住期间库存行
@@ -332,6 +348,72 @@ public class BookingServiceImpl implements BookingService {
         );
         //保存订单
         bookingOrderMapper.insert(order);
+
+        /*
+         * 保存入住人
+         */
+        for (int i = 0;
+             i < request.getGuests().size();
+             i++) {
+
+            BookingGuestRequest guestRequest =
+                    request.getGuests().get(i);
+
+
+            BookingGuest guest =
+                    new BookingGuest();
+
+
+            guest.setOrderId(
+                    order.getOrderId()
+            );
+
+
+            guest.setGuestName(
+                    guestRequest.getGuestName()
+            );
+
+
+            guest.setPhone(
+                    guestRequest.getPhone()
+            );
+
+
+            String idType =
+                    guestRequest.getIdType();
+
+            if (idType == null
+                    || idType.isBlank()) {
+
+                idType = "ID_CARD";
+            }
+
+            guest.setIdType(idType);
+
+
+            guest.setIdNumber(
+                    guestRequest.getIdNumber()
+            );
+
+
+            /*
+             * 第一个入住人作为主要入住人
+             */
+            guest.setIsPrimary(
+                    i == 0 ? 1 : 0
+            );
+
+
+            guest.setCreateTime(
+                    LocalDateTime.now()
+            );
+
+
+            bookingGuestMapper.insert(
+                    guest
+            );
+        }
+
         /*
          * 12. 返回订单信息
          */
@@ -479,7 +561,74 @@ public class BookingServiceImpl implements BookingService {
             );
         }
 
-        return toBookingOrderVO(order);
+        BookingOrderVO vo =
+                toBookingOrderVO(order);
+
+
+        /*
+         * 查询当前订单全部入住人
+         */
+        List<BookingGuest> guests =
+                bookingGuestMapper.selectList(
+                        new LambdaQueryWrapper<BookingGuest>()
+                                .eq(
+                                        BookingGuest::getOrderId,
+                                        order.getOrderId()
+                                )
+                                .orderByDesc(
+                                        BookingGuest::getIsPrimary
+                                )
+                                .orderByAsc(
+                                        BookingGuest::getGuestId
+                                )
+                );
+
+
+        List<BookingGuestVO> guestVOList =
+                new ArrayList<>();
+
+
+        for (BookingGuest guest : guests) {
+
+            BookingGuestVO guestVO =
+                    new BookingGuestVO();
+
+            guestVO.setGuestId(
+                    guest.getGuestId()
+            );
+
+            guestVO.setGuestName(
+                    guest.getGuestName()
+            );
+
+            guestVO.setPhone(
+                    guest.getPhone()
+            );
+
+            guestVO.setIdType(
+                    guest.getIdType()
+            );
+
+            guestVO.setIdNumber(
+                    guest.getIdNumber()
+            );
+
+            guestVO.setIsPrimary(
+                    guest.getIsPrimary()
+            );
+
+            guestVOList.add(
+                    guestVO
+            );
+        }
+
+
+        vo.setGuests(
+                guestVOList
+        );
+
+
+        return vo;
     }
 
 
@@ -1102,7 +1251,74 @@ public class BookingServiceImpl implements BookingService {
         /*
          * 11. 返回更新后的订单
          */
-        return toBookingOrderVO(order);
+        BookingOrderVO vo =
+                toBookingOrderVO(order);
+
+
+        /*
+         * 查询当前订单全部入住人
+         */
+        List<BookingGuest> guests =
+                bookingGuestMapper.selectList(
+                        new LambdaQueryWrapper<BookingGuest>()
+                                .eq(
+                                        BookingGuest::getOrderId,
+                                        order.getOrderId()
+                                )
+                                .orderByDesc(
+                                        BookingGuest::getIsPrimary
+                                )
+                                .orderByAsc(
+                                        BookingGuest::getGuestId
+                                )
+                );
+
+
+        List<BookingGuestVO> guestVOList =
+                new ArrayList<>();
+
+
+        for (BookingGuest guest : guests) {
+
+            BookingGuestVO guestVO =
+                    new BookingGuestVO();
+
+            guestVO.setGuestId(
+                    guest.getGuestId()
+            );
+
+            guestVO.setGuestName(
+                    guest.getGuestName()
+            );
+
+            guestVO.setPhone(
+                    guest.getPhone()
+            );
+
+            guestVO.setIdType(
+                    guest.getIdType()
+            );
+
+            guestVO.setIdNumber(
+                    guest.getIdNumber()
+            );
+
+            guestVO.setIsPrimary(
+                    guest.getIsPrimary()
+            );
+
+            guestVOList.add(
+                    guestVO
+            );
+        }
+
+
+        vo.setGuests(
+                guestVOList
+        );
+
+
+        return vo;
     }
 
 }

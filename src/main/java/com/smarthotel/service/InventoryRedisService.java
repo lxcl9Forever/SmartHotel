@@ -34,4 +34,10 @@ public interface InventoryRedisService {
             LocalDate checkOutDate,
             Integer roomCount
     );
+
+    void syncInventory(
+            Long roomTypeId,
+            LocalDate date,
+            Integer availableQty
+    );
 }

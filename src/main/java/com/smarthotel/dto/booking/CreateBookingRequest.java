@@ -5,7 +5,10 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 
+import java.util.List;
 import java.time.LocalDate;
 
 @Data
@@ -36,4 +39,8 @@ public class CreateBookingRequest {
     private String contactPhone;
 
     private String remark;
+
+    @Valid
+    @NotEmpty(message = "入住人信息不能为空")
+    private List<BookingGuestRequest> guests;
 }

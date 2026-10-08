@@ -265,4 +265,26 @@ public class InventoryRedisServiceImpl
 
         return result;
     }
+
+    @Override
+    public void syncInventory(
+            Long roomTypeId,
+            LocalDate date,
+            Integer availableQty) {
+
+        String key =
+                buildKey(
+                        roomTypeId,
+                        date
+                );
+
+        stringRedisTemplate
+                .opsForValue()
+                .set(
+                        key,
+                        String.valueOf(
+                                availableQty
+                        )
+                );
+    }
 }
