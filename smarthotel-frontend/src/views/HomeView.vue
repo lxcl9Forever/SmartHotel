@@ -53,8 +53,8 @@
 
     <div class="hotel-search-layout">
       <section v-if="hotel" class="hotel-info">
-        <h2>{{ hotel.hotelName }}</h2>
-        <p>{{ hotel.description }}</p>
+        <h2>{{ hotelDisplayName }}</h2>
+        <p>{{ hotelDisplayDescription }}</p>
         <p>地址：{{ hotel.address }} · 电话：{{ hotel.phone }}</p>
         <p>入住时间：{{ hotel.checkInTime }} · 退房时间：{{ hotel.checkOutTime }}</p>
       </section>
@@ -579,6 +579,10 @@ const userStore = useUserStore()
 const loading = ref(false)
 const roomTypes = ref([])
 const hotel = ref(null)
+const hotelDisplayName = computed(() => hotel.value?.hotelName?.replace(/^SmartHotel\s*/i, '').trim() || '智慧酒店')
+const hotelDisplayDescription = computed(() => hotel.value?.description === 'SmartHotel 智慧酒店预订与运营管理系统演示酒店'
+  ? '智慧酒店预订与运营管理系统'
+  : hotel.value?.description)
 const roomDetail = ref(null)
 const roomDetailVisible = ref(false)
 const detailPhotos = computed(() => {
