@@ -55,8 +55,8 @@
       <section v-if="hotel" class="hotel-info">
         <h2>{{ hotelDisplayName }}</h2>
         <p>{{ hotelDisplayDescription }}</p>
-        <p>地址：{{ hotel.address }} · 电话：{{ hotel.phone }}</p>
-        <p>入住时间：{{ hotel.checkInTime }} · 退房时间：{{ hotel.checkOutTime }}</p>
+        <p>地址：{{ hotel.address }}  电话：{{hotel.phone }}</p>
+        <p>入住时间：{{ hotel.checkInTime }}  退房时间：{{ hotel.checkOutTime }}</p>
       </section>
 
       <!-- 搜索区域 -->
@@ -1034,8 +1034,8 @@ const handleLogout = async () => {
         '确定退出当前账号吗？',
         '退出登录',
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: '是',
+          cancelButtonText: '否',
           type: 'warning'
         }
     )

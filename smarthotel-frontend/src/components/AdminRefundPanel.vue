@@ -114,7 +114,7 @@ const review = async (row, approve) => {
     await ElMessageBox.confirm(
       `确定${approve ? '同意' : '拒绝'}订单 ${row.orderNo} 的退款申请吗？`,
       '退款审核',
-      { type: approve ? 'warning' : 'info', confirmButtonText: '确定', cancelButtonText: '取消' }
+      { type: approve ? 'warning' : 'info', confirmButtonText: '是', cancelButtonText: '否' }
     )
   } catch {
     return

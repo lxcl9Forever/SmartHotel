@@ -409,8 +409,8 @@ const handleCancel = async () => {
         '确定取消这个订单吗？',
         '取消订单',
         {
-          confirmButtonText: '确定取消',
-          cancelButtonText: '暂不取消',
+          confirmButtonText: '是',
+          cancelButtonText: '否',
           type: 'warning'
         }
     )
@@ -462,8 +462,8 @@ const handlePay = async () => {
         `确认模拟支付 ¥${order.value.totalAmount} 吗？`,
         '支付确认',
         {
-          confirmButtonText: '确认支付',
-          cancelButtonText: '取消'
+          confirmButtonText: '是',
+          cancelButtonText: '否'
         }
     )
 

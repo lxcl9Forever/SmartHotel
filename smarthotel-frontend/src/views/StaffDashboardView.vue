@@ -4,7 +4,7 @@
     <!-- 顶部 -->
     <header class="header">
       <div>
-        <h1>SmartHotel 前台工作台</h1>
+        <h1>智慧酒店·前台工作台</h1>
         <p>入住、退房与客房状态管理</p>
       </div>
 
@@ -1325,7 +1325,7 @@ const handleMarkNoShow = async order => {
     await ElMessageBox.confirm(
       `将订单 ${order.orderNo} 标记为未入住并移出待入住列表？支付记录会保留，此操作不会发起退款。`,
       '确认标记未入住',
-      { type: 'warning', confirmButtonText: '确认标记', cancelButtonText: '取消' }
+      { type: 'warning', confirmButtonText: '是', cancelButtonText: '否' }
     )
     noShowSubmitting.value = true
     await markOrderNoShow(order.orderId)
@@ -1343,7 +1343,7 @@ const handleMarkOverdueNoShows = async () => {
     await ElMessageBox.confirm(
       `将全部已过入住日期且已支付的待入住订单标记为未入住？当前列表有 ${overdueConfirmedCount.value} 笔。支付记录会保留，此操作不会发起退款。`,
       '确认批量标记',
-      { type: 'warning', confirmButtonText: '确认标记', cancelButtonText: '取消' }
+      { type: 'warning', confirmButtonText: '是', cancelButtonText: '否' }
     )
     noShowSubmitting.value = true
     const response = await markOverdueNoShows()

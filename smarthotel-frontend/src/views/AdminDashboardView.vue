@@ -2322,8 +2322,8 @@ const handleLogout = async () => {
         '确定退出管理员账号吗？',
         '退出登录',
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: '是',
+          cancelButtonText: '否',
           type: 'warning'
         }
     )
