@@ -1,36 +1,14 @@
-HELP.md
-target/
-!.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+# Local configuration and credentials
+**/.env.local
+**/application.yml
+**/*.pem
+**/*.p12
+**/*.pfx
 
-### STS ###
-.apt_generated
-.classpath
-.factorypath
-.project
-.settings
-.springBeans
-.sts4-cache
-
-### IntelliJ IDEA ###
-.idea
-*.iws
-*.iml
-*.ipr
-
-### NetBeans ###
-/nbproject/private/
-/nbbuild/
-/dist/
-/nbdist/
-/.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
-
-### VS Code ###
-.vscode/
-
-# Local sensitive configuration
-src/main/resources/application.yml
+# Dependencies, build output and editor files
+**/node_modules/
+**/target/
+**/dist/
+**/.idea/
+**/.vscode/
+**/*.log

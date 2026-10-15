@@ -1,0 +1,47 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: smarthotel-backend
+
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/smart_hotel?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
+    username: root
+    password: YOUR_MYSQL_PASSWORD
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:192.168.229.131}
+    port: ${RABBITMQ_PORT:5672}
+    virtual-host: ${RABBITMQ_VHOST:/mall}
+    username: ${RABBITMQ_USER:mall}
+    password: ${RABBITMQ_PASSWORD:}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+
+jwt:
+  secret: YOUR_JWT_SECRET
+  expiration: 86400000
+
+smarthotel:
+  order:
+    payment-timeout-minutes: 30
+  rabbitmq:
+    enabled: ${RABBITMQ_ENABLED:false}
+  alipay:
+    enabled: ${ALIPAY_ENABLED:false}
+    gateway: ${ALIPAY_GATEWAY:https://openapi-sandbox.dl.alipaydev.com/gateway.do}
+    app-id: ${ALIPAY_APP_ID:}
+    private-key-file: ${ALIPAY_PRIVATE_KEY_FILE:}
+    public-key-file: ${ALIPAY_PUBLIC_KEY_FILE:}
+    notify-url: ${ALIPAY_NOTIFY_URL:}
+    seller-id: ${ALIPAY_SELLER_ID:}
+  ai:
+    llm-enabled: ${AI_LLM_ENABLED:false}
+    llm-url: ${AI_LLM_URL:https://api.deepseek.com/chat/completions}
+    llm-model: ${AI_LLM_MODEL:deepseek-flash}
+    llm-api-key: ${AI_LLM_API_KEY:}
