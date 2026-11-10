@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS refund_record (
     KEY idx_refund_order_id (order_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
--- One simulated money movement per approved refund. The original payment
+-- One money movement per approved refund (MOCK or ALIPAY). The original payment
 -- record remains unchanged so the payment and refund are independently auditable.
 CREATE TABLE IF NOT EXISTS refund_payment_record (
     refund_payment_id BIGINT NOT NULL AUTO_INCREMENT,

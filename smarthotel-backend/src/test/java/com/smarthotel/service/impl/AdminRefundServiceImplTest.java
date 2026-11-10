@@ -6,6 +6,7 @@ import com.smarthotel.entity.RefundRecord;
 import com.smarthotel.entity.RefundPaymentRecord;
 import com.smarthotel.entity.RoomInventory;
 import com.smarthotel.exception.BusinessException;
+import com.smarthotel.service.AlipayService;
 import com.smarthotel.mapper.BookingOrderMapper;
 import com.smarthotel.mapper.PaymentMapper;
 import com.smarthotel.mapper.RefundRecordMapper;
@@ -30,11 +31,12 @@ class AdminRefundServiceImplTest {
     private final PaymentMapper payments = mock(PaymentMapper.class);
     private final RoomInventoryMapper inventories = mock(RoomInventoryMapper.class);
     private final RefundPaymentRecordMapper refundPayments = mock(RefundPaymentRecordMapper.class);
+    private final AlipayService alipayService = mock(AlipayService.class);
     private AdminRefundServiceImpl service;
 
     @BeforeEach
     void setUp() {
-        service = new AdminRefundServiceImpl(refunds, orders, payments, inventories, refundPayments);
+        service = new AdminRefundServiceImpl(refunds, orders, payments, inventories, refundPayments, alipayService);
     }
 
     @Test
@@ -43,6 +45,8 @@ class AdminRefundServiceImplTest {
         stubPendingRefund(order);
         Payment payment = new Payment();
         payment.setAmount(new BigDecimal("1588.00"));
+        payment.setPaymentMethod("MOCK");
+        payment.setPaymentStatus("SUCCESS");
         when(payments.selectList(any())).thenReturn(List.of(payment));
         RoomInventory inventory = new RoomInventory();
         inventory.setSoldQty(1);
@@ -100,6 +104,8 @@ class AdminRefundServiceImplTest {
         stubPendingRefund(pendingOrder());
         Payment payment = new Payment();
         payment.setAmount(new BigDecimal("1588.00"));
+        payment.setPaymentMethod("MOCK");
+        payment.setPaymentStatus("SUCCESS");
         when(payments.selectList(any())).thenReturn(List.of(payment));
         RoomInventory inventory = new RoomInventory();
         inventory.setSoldQty(0);
@@ -109,8 +115,65 @@ class AdminRefundServiceImplTest {
                 () -> service.approve(5L));
 
         assertEquals(409, error.getCode());
-        verifyNoInteractions(refundPayments);
+        verify(refundPayments, never()).insert(any());
         verify(refunds, never()).updateStatus(any(), any());
+    }
+
+    @Test
+    void approveAlipayPaymentUsesOriginalTradeAndRecordsAlipayRefund() {
+        BookingOrder order = pendingOrder();
+        stubPendingRefund(order);
+        Payment payment = alipayPayment();
+        when(payments.selectList(any())).thenReturn(List.of(payment));
+        RoomInventory inventory = new RoomInventory();
+        inventory.setSoldQty(1);
+        when(inventories.selectList(any())).thenReturn(List.of(inventory));
+        when(inventories.updateById(inventory)).thenReturn(1);
+        when(refundPayments.insert(any(RefundPaymentRecord.class))).thenReturn(1);
+        when(refunds.updateStatus(5L, "APPROVED")).thenReturn(1);
+        when(orders.updateById(order)).thenReturn(1);
+
+        service.approve(5L);
+
+        verify(alipayService).refund(eq(payment), any(RefundRecord.class), eq("RF000000000000000000000000000005"));
+        verify(refundPayments).insert(argThat(record ->
+                "ALIPAY".equals(record.getRefundMethod())
+                        && "RF000000000000000000000000000005".equals(record.getRefundNo())
+                        && "SUCCESS".equals(record.getRefundStatus())));
+        assertEquals("REFUNDED", order.getPaymentStatus());
+        assertEquals(0, inventory.getSoldQty());
+    }
+
+    @Test
+    void failedAlipayRefundDoesNotChangeInventoryOrReviewStatus() {
+        BookingOrder order = pendingOrder();
+        stubPendingRefund(order);
+        Payment payment = alipayPayment();
+        when(payments.selectList(any())).thenReturn(List.of(payment));
+        RoomInventory inventory = new RoomInventory();
+        inventory.setSoldQty(1);
+        when(inventories.selectList(any())).thenReturn(List.of(inventory));
+        doThrow(new BusinessException(502, "支付宝退款未成功"))
+                .when(alipayService).refund(eq(payment), any(RefundRecord.class), any());
+
+        assertThrows(BusinessException.class, () -> service.approve(5L));
+
+        assertEquals(1, inventory.getSoldQty());
+        assertEquals("REFUNDING", order.getPaymentStatus());
+        verify(inventories, never()).updateById(any(RoomInventory.class));
+        verify(refundPayments, never()).insert(any());
+        verify(refunds, never()).updateStatus(any(), any());
+    }
+
+    private Payment alipayPayment() {
+        Payment payment = new Payment();
+        payment.setOrderId(30L);
+        payment.setPaymentNo("merchant-payment-30");
+        payment.setThirdPartyNo("alipay-trade-30");
+        payment.setPaymentMethod("ALIPAY");
+        payment.setPaymentStatus("SUCCESS");
+        payment.setAmount(new BigDecimal("1588.00"));
+        return payment;
     }
 
     private void stubPendingRefund(BookingOrder order) {

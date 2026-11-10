@@ -34,3 +34,6 @@ build/
 
 # Local sensitive configuration
 src/main/resources/application.yml
+
+# Generated load-test summaries
+/loadtest/report-*.json

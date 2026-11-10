@@ -12,3 +12,28 @@
 **/.idea/
 **/.vscode/
 **/*.log
+
+# Local credentials and machine-specific configuration
+**/.env
+**/.env.*
+!**/.env.example
+**/application-local.yml
+**/application-*.local.yml
+**/*.key
+**/secrets/
+
+# Documentation generation intermediates and historical root-level exports
+/.codex-skill-staging/
+/.docx-qa-roles/
+/_document_work/
+/_deployment_work/
+/设计说明书图源/
+/*.docx
+/*.zip
+
+# OS/editor caches
+**/__pycache__/
+**/*.pyc
+**/~$*
+**/Thumbs.db
+**/.DS_Store

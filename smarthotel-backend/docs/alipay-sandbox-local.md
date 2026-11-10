@@ -7,8 +7,8 @@
 在支付宝开放平台的沙箱应用中，确认已选择**公钥模式**，并取得：沙箱 AppID、应用私钥、支付宝公钥、沙箱买家账号。把**应用私钥**和**支付宝公钥**分别保存为 UTF-8 文本文件，放在项目目录之外，例如：
 
 ```text
-C:\Users\32273\alipay-keys\app-private-key.txt
-C:\Users\32273\alipay-keys\alipay-public-key.txt
+C:\secure\alipay-keys\app-private-key.txt
+C:\secure\alipay-keys\alipay-public-key.txt
 ```
 
 应用公钥用于上传到支付宝平台；后端 `ALIPAY_PUBLIC_KEY_FILE` 指向的是**支付宝公钥**。不要把私钥写入 `application.yml`、`.env.local`、聊天或 Git。

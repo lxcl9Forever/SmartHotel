@@ -12,6 +12,7 @@ SET NAMES utf8mb4;
 -- 例如：0301、0302 ... 0320、0401 ...
 -- ============================================================
 
+INSERT INTO room (room_no, room_type_id, floor_no, status)
 WITH RECURSIVE numbers AS
                    (
                        SELECT 1 AS n
@@ -58,13 +59,6 @@ WITH RECURSIVE numbers AS
                        FROM numbers
                    )
 
-INSERT INTO room
-(
-    room_no,
-    room_type_id,
-    floor_no,
-    status
-)
 SELECT
     rd.room_no,
     rt.room_type_id,

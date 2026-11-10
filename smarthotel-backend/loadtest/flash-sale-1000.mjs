@@ -118,10 +118,11 @@ try {
     const username = `load_${prefix}_${index}`
     const phone = `1${String(phoneSeed * 10000 + index).padStart(10, '0')}`
     const name = `压测客户${index + 1}`
-    assertSuccess(await request('POST', '/api/v1/auth/register', { username, password, name, phone }), `register ${index}`)
-    const login = assertSuccess(await request('POST', '/api/v1/auth/login', { username, password }), `login ${index}`)
-    if (!login.token || login.role !== 'CUSTOMER') throw new Error(`Account ${index} did not receive a customer token.`)
-    return { token: login.token, name, phone }
+    const account = assertSuccess(await request('POST', '/api/v1/auth/loadtest/register',
+      { username, password, name, phone }), `prepare account ${index} (enable the loadtest backend profile)`)
+    if (!account.token || account.role !== 'CUSTOMER')
+      throw new Error(`Account ${index} did not receive a customer token.`)
+    return { token: account.token, name, phone }
   })
 
   // Preparation can be slow due to BCrypt. Recheck the deal immediately before the burst.
@@ -169,11 +170,13 @@ try {
       Math.round(Number(refreshed.dealPrice) * 100))
 
   let afterRemaining = null
+  let finalReadError = null
   try {
     const after = assertSuccess(await request('GET', '/api/v1/daily-deals'), 'final deal list')
       .find(item => Number(item.id) === config.dealId)
     afterRemaining = after?.remaining ?? null
-  } catch { /* Keep the burst report even if the final read fails. */ }
+    if (afterRemaining === null) finalReadError = 'Selected deal is absent from the final deal list.'
+  } catch (error) { finalReadError = error.message }
 
   const invariant = {
     noOversell: successful.length <= initialRemaining,
@@ -185,7 +188,7 @@ try {
   }
   const report = {
     run: prefix, target: origin.origin, dealId: config.dealId, users: config.users,
-    roomTypeId: refreshed.roomTypeId, initialRemaining, afterRemaining,
+    roomTypeId: refreshed.roomTypeId, initialRemaining, afterRemaining, finalReadError,
     expectedDealPrice: refreshed.dealPrice, burstMs,
     successful: successful.length, expectedRejections: expectedRejections.length,
     unexpectedFailures: unexpected.length,
@@ -203,7 +206,7 @@ try {
   await writeFile(config.reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8')
   console.log(JSON.stringify(report, null, 2))
   console.log(`Report: ${config.reportPath}`)
-  if (Object.values(invariant).some(value => value === false) || unexpected.length > 0)
+  if (Object.values(invariant).some(value => value === false) || unexpected.length > 0 || finalReadError)
     process.exitCode = 1
 } catch (error) {
   console.error(`Load test aborted: ${error.message}`)

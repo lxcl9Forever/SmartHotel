@@ -24,7 +24,7 @@
         <template #default="{ row }">¥{{ row.refundAmount }}</template>
       </el-table-column>
       <el-table-column prop="refundReason" label="退款原因" min-width="160" show-overflow-tooltip />
-      <el-table-column prop="refundNo" label="模拟退款流水号" min-width="210" show-overflow-tooltip>
+      <el-table-column prop="refundNo" label="退款流水号" min-width="210" show-overflow-tooltip>
         <template #default="{ row }">{{ row.refundNo || '-' }}</template>
       </el-table-column>
       <el-table-column label="库存同步" width="100">
@@ -112,7 +112,9 @@ const changePageSize = () => {
 const review = async (row, approve) => {
   try {
     await ElMessageBox.confirm(
-      `确定${approve ? '同意' : '拒绝'}订单 ${row.orderNo} 的退款申请吗？`,
+      approve
+        ? `确定同意订单 ${row.orderNo} 的退款申请吗？同意后将按原支付方式退还 ¥${row.refundAmount}。`
+        : `确定拒绝订单 ${row.orderNo} 的退款申请吗？`,
       '退款审核',
       { type: approve ? 'warning' : 'info', confirmButtonText: '是', cancelButtonText: '否' }
     )

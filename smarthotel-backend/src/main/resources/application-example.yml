@@ -9,13 +9,20 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/smart_hotel?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
     username: root
-    password: YOUR_MYSQL_PASSWORD
+    password: ${MYSQL_PASSWORD:}
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: ${REDIS_DATABASE:0}
 
   rabbitmq:
-    host: ${RABBITMQ_HOST:192.168.229.131}
+    host: ${RABBITMQ_HOST:localhost}
     port: ${RABBITMQ_PORT:5672}
-    virtual-host: ${RABBITMQ_VHOST:/mall}
-    username: ${RABBITMQ_USER:mall}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    username: ${RABBITMQ_USER:guest}
     password: ${RABBITMQ_PASSWORD:}
 
 mybatis-plus:
@@ -24,7 +31,7 @@ mybatis-plus:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
 
 jwt:
-  secret: YOUR_JWT_SECRET
+  secret: ${JWT_SECRET:}
   expiration: 86400000
 
 smarthotel:

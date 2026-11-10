@@ -4,7 +4,7 @@
     <header class="header">
 
       <div>
-        <h1>SmartHotel 管理后台</h1>
+        <h1>智慧酒店·管理后台</h1>
         <p>房型与实体客房管理</p>
       </div>
 

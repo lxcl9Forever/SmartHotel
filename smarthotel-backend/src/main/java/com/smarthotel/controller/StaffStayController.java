@@ -1,23 +1,17 @@
 package com.smarthotel.controller;
 
-
 import com.smarthotel.dto.stay.ExtendStayRequest;
 import com.smarthotel.service.StayExtensionService;
 import com.smarthotel.vo.stay.ExtendStayPreviewVO;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
-
-
 @RestController
 @RequestMapping("/api/v1/staff/stay")
 @RequiredArgsConstructor
 public class StaffStayController {
 
-
     private final StayExtensionService stayExtensionService;
-
-
 
     /**
      * 续住费用预览
@@ -35,9 +29,6 @@ public class StaffStayController {
         return stayExtensionService.preview(request);
 
     }
-
-
-
 
     /**
      * 确认续住

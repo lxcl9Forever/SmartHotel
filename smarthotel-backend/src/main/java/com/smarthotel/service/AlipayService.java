@@ -6,8 +6,12 @@ import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.internal.util.AlipaySignature;
 import com.alipay.api.request.AlipayTradePagePayRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
+import com.alipay.api.request.AlipayTradeFastpayRefundQueryRequest;
 import com.alipay.api.response.AlipayTradePagePayResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
+import com.alipay.api.response.AlipayTradeFastpayRefundQueryResponse;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -16,6 +20,7 @@ import com.smarthotel.config.AlipayConfig;
 import com.smarthotel.entity.BookingOrder;
 import com.smarthotel.entity.Customer;
 import com.smarthotel.entity.Payment;
+import com.smarthotel.entity.RefundRecord;
 import com.smarthotel.entity.RoomInventory;
 import com.smarthotel.entity.SysUser;
 import com.smarthotel.exception.BusinessException;
@@ -208,6 +213,100 @@ public class AlipayService {
         }
     }
 
+    /** Use one stable request number per refund so a retry cannot create a second refund. */
+    public void refund(Payment payment, RefundRecord refund, String requestNo) {
+        requireConfigured();
+        if (payment == null || !"ALIPAY".equals(payment.getPaymentMethod())
+                || !"SUCCESS".equals(payment.getPaymentStatus())
+                || !StringUtils.hasText(payment.getPaymentNo())
+                || !StringUtils.hasText(payment.getThirdPartyNo())
+                || refund == null || refund.getRefundAmount() == null
+                || refund.getRefundAmount().signum() <= 0
+                || payment.getAmount() == null
+                || payment.getAmount().compareTo(refund.getRefundAmount()) < 0
+                || !StringUtils.hasText(requestNo)) {
+            throw new BusinessException(409, "支付宝支付记录与退款金额不匹配，请核对后处理");
+        }
+
+        AlipayClient apiClient = client();
+        AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+        try {
+            request.setBizContent(objectMapper.writeValueAsString(Map.of(
+                    "out_trade_no", payment.getPaymentNo(),
+                    "trade_no", payment.getThirdPartyNo(),
+                    "refund_amount", refund.getRefundAmount().toPlainString(),
+                    "refund_reason", refund.getRefundReason() == null ? "订单退款" : refund.getRefundReason(),
+                    "out_request_no", requestNo)));
+        } catch (JsonProcessingException error) {
+            throw new BusinessException(500, "构造支付宝退款请求失败");
+        }
+
+        try {
+            AlipayTradeRefundResponse response = apiClient.execute(request);
+            if (response.isSuccess()
+                    && "Y".equals(response.getFundChange())
+                    && payment.getPaymentNo().equals(response.getOutTradeNo())
+                    && payment.getThirdPartyNo().equals(response.getTradeNo())
+                    && sameAmount(refund.getRefundAmount(), response.getRefundFee())) {
+                return;
+            }
+            // A replay may return fund_change=N. Confirm the original request before recording success.
+            if (queryRefundSucceeded(apiClient, payment, refund.getRefundAmount(), requestNo)) {
+                return;
+            }
+            log.warn("Alipay refund not confirmed for refund {}: {}", refund.getRefundId(), response.getSubCode());
+            throw new BusinessException(502, "支付宝退款未成功，请核对沙箱交易后重试该申请");
+        } catch (AlipayApiException error) {
+            // A timeout can happen after Alipay has refunded. Query with the SAME request number.
+            log.warn("Alipay refund response unavailable for refund {}", refund.getRefundId(), error);
+            if (queryRefundSucceeded(apiClient, payment, refund.getRefundAmount(), requestNo)) {
+                return;
+            }
+            throw new BusinessException(502, "支付宝退款结果未确认，请稍后重试该申请");
+        }
+    }
+
+    private boolean queryRefundSucceeded(AlipayClient apiClient, Payment payment,
+                                         BigDecimal amount, String requestNo) {
+        AlipayTradeFastpayRefundQueryRequest request = new AlipayTradeFastpayRefundQueryRequest();
+        try {
+            request.setBizContent(objectMapper.writeValueAsString(Map.of(
+                    "out_trade_no", payment.getPaymentNo(),
+                    "trade_no", payment.getThirdPartyNo(),
+                    "out_request_no", requestNo)));
+            AlipayTradeFastpayRefundQueryResponse response = apiClient.execute(request);
+            if (!response.isSuccess()) {
+                log.warn("Alipay refund query failed for request {}: {}", requestNo, response.getSubCode());
+                throw new BusinessException(502, "支付宝退款状态无法核实，请稍后重试该申请");
+            }
+            if (!StringUtils.hasText(response.getOutRequestNo())
+                    && !StringUtils.hasText(response.getRefundAmount())) {
+                return false;
+            }
+            if (requestNo.equals(response.getOutRequestNo())
+                    && payment.getPaymentNo().equals(response.getOutTradeNo())
+                    && payment.getThirdPartyNo().equals(response.getTradeNo())
+                    && sameAmount(amount, response.getRefundAmount())
+                    && (!StringUtils.hasText(response.getRefundStatus())
+                        || "REFUND_SUCCESS".equals(response.getRefundStatus())
+                        || "SUCCESS".equals(response.getRefundStatus()))) {
+                return true;
+            }
+            throw new BusinessException(502, "支付宝退款记录与本地申请不一致，请人工核对");
+        } catch (JsonProcessingException | AlipayApiException error) {
+            log.warn("Could not query Alipay refund request {}", requestNo, error);
+            throw new BusinessException(502, "支付宝退款状态无法核实，请稍后重试该申请");
+        }
+    }
+
+    private boolean sameAmount(BigDecimal expected, String actual) {
+        try {
+            return actual != null && expected.compareTo(new BigDecimal(actual)) == 0;
+        } catch (NumberFormatException error) {
+            return false;
+        }
+    }
+
     private boolean completeVerifiedPayment(String paymentNo, String tradeNo, BigDecimal notifiedAmount) {
         Payment found = paymentMapper.selectOne(new LambdaQueryWrapper<Payment>()
                 .eq(Payment::getPaymentNo, paymentNo)
@@ -273,7 +372,7 @@ public class AlipayService {
         }
     }
 
-    private AlipayClient client() {
+    AlipayClient client() {
         return new DefaultAlipayClient(config.getGateway(), config.getAppId(),
                 readKey(config.getPrivateKeyFile(), "应用私钥"), "json", "UTF-8",
                 readKey(config.getPublicKeyFile(), "支付宝公钥"), "RSA2");

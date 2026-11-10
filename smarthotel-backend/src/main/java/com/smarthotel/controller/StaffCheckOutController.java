@@ -15,7 +15,6 @@ public class StaffCheckOutController {
 
     private final CheckOutService checkOutService;
 
-
     @PostMapping
     public Result<Void> checkOut(
             Authentication authentication,

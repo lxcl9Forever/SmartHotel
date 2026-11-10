@@ -1,10 +1,10 @@
 # 每日优惠：1000 人抢同一房型
 
-此脚本准备 1000 个不同的客户账号，再同时向同一 `dailyDealId` 发送预订请求。注册和登录在计时前完成。脚本**只创建待支付订单，不调用支付接口**。
+此脚本准备 1000 个不同的客户账号和令牌，再同时向同一 `dailyDealId` 发送预订请求。账号准备在计时前完成。脚本**只创建待支付订单，不调用支付接口**。
 
 ## 运行前
 
-1. 在隔离环境启动后端，使用**独立的 MySQL 数据库和 Redis 库/实例**。不要连接日常开发或真实业务数据。关闭支付宝；RabbitMQ 可关闭，订单超时仍由定时扫描处理。后端可在 `8081` 端口运行。可在 IDEA 的测试运行配置中覆盖数据库 URL、Redis 地址或库号、端口，并设置 `smarthotel.alipay.enabled=false`、`smarthotel.rabbitmq.enabled=false`。
+1. 在隔离环境启动后端，使用**独立的 MySQL 数据库和 Redis 库/实例**。不要连接日常开发或真实业务数据。后端绑定本机 `127.0.0.1:8081`，关闭支付宝；RabbitMQ 可关闭，订单超时仍由定时扫描处理。可在 IDEA 的测试运行配置中覆盖数据库 URL、Redis 地址或库号、端口，并设置 `smarthotel.alipay.enabled=false`、`smarthotel.rabbitmq.enabled=false`。同时显式设置环境变量 `SERVER_ADDRESS=127.0.0.1`、`SERVER_PORT=8081`、`SPRING_PROFILES_ACTIVE=loadtest` 和 `SMARTHOTEL_LOADTEST_ENABLED=true`。这样才会开启本机专用的压测账号准备接口；默认启动时该接口不存在。普通登录接口要求图片验证码且对单个 IP 限流，无法用于准备 1000 个账号。
 2. 在隔离数据库执行项目建表及种子 SQL，包括 `database/15_daily_deal.sql`。**项目 SQL 文件含有 `USE smart_hotel`**：建议使用独立 MySQL 实例中的同名数据库；若使用同一实例的其他库，先在副本中修改这些 `USE`，不要直接执行原文件。确保目标房型在选定入住区间内每天都有房价和库存，再以管理员身份调用隔离后端的 `POST /api/v1/test/redis/inventory/init` 将这些库存同步到隔离 Redis。
 3. 用管理员页面“每日优惠秒杀”创建并开启活动。建议房型库存至少 20 间、秒杀名额 20 间、折扣率 `0.8`，入住日期选未来，活动保持开放至少 30 分钟。记下活动 ID。
 4. 确认测试环境的订单支付超时时间长于整个测试，且没有其他请求在抢同一活动。
@@ -28,5 +28,6 @@ node .\loadtest\flash-sale-1000.mjs
 - `unexpectedFailures` 为 0；任何 500、鉴权失败、连接错误或超时都需要单独排查。
 - `latencyMs.p50/p95/p99` 和 `burstMs` 衡量排队与数据库锁竞争；名额正确不代表吞吐或响应时间达标。
 - `remainingDecreasedBySuccesses` 为 `true`。若活动在测试期间结束、订单超时或有外部流量，这项对账可能失去可比性。
+- `finalReadError` 应为 `null`；若末次活动查询失败，脚本会保存报告并以失败退出，避免把无法核对的结果判成通过。
 
 报告默认写入 `loadtest/report-<时间戳>.json`，仅包含汇总和错误类别，不保存账号密码或令牌。测试结束后销毁隔离数据库及 Redis 数据。

@@ -13,6 +13,7 @@ import com.smarthotel.mapper.RefundRecordMapper;
 import com.smarthotel.mapper.RefundPaymentRecordMapper;
 import com.smarthotel.mapper.RoomInventoryMapper;
 import com.smarthotel.service.AdminRefundService;
+import com.smarthotel.service.AlipayService;
 import com.smarthotel.vo.AdminRefundVO;
 import com.smarthotel.vo.PageResult;
 import lombok.RequiredArgsConstructor;
@@ -21,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.Objects;
@@ -38,6 +40,7 @@ public class AdminRefundServiceImpl implements AdminRefundService {
     private final PaymentMapper paymentMapper;
     private final RoomInventoryMapper roomInventoryMapper;
     private final RefundPaymentRecordMapper refundPaymentRecordMapper;
+    private final AlipayService alipayService;
 
     @Override
     public PageResult<AdminRefundVO> listRefunds(String status, Integer page, Integer pageSize) {
@@ -95,7 +98,7 @@ public class AdminRefundServiceImpl implements AdminRefundService {
         }
 
         if (approved) {
-            completeMockRefund(refund, order);
+            completeRefund(refund, order);
         }
 
         String newStatus = approved ? "APPROVED" : "REJECTED";
@@ -114,23 +117,39 @@ public class AdminRefundServiceImpl implements AdminRefundService {
         }
     }
 
-    private void completeMockRefund(RefundRecord refund, BookingOrder order) {
+    private void completeRefund(RefundRecord refund, BookingOrder order) {
+        if (refundPaymentRecordMapper.selectByRefundId(refund.getRefundId()) != null) {
+            throw new BusinessException(409, "该退款已有流水，请核对后处理");
+        }
         List<Payment> payments = paymentMapper.selectList(
                 new LambdaQueryWrapper<Payment>()
                         .eq(Payment::getOrderId, order.getOrderId())
-                        .eq(Payment::getPaymentMethod, "MOCK")
                         .eq(Payment::getPaymentStatus, "SUCCESS")
         );
-        BigDecimal paidAmount = payments.stream()
+        BigDecimal mockPaidAmount = payments.stream()
+                .filter(payment -> "MOCK".equals(payment.getPaymentMethod()))
                 .map(Payment::getAmount)
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        List<Payment> alipayPayments = payments.stream()
+                .filter(payment -> "ALIPAY".equals(payment.getPaymentMethod()))
+                .toList();
         if (refund.getRefundAmount() == null
-                || refund.getRefundAmount().signum() <= 0
-                || paidAmount.compareTo(refund.getRefundAmount()) < 0) {
-            throw new BusinessException(409, "没有足额的模拟支付记录，无法退款");
+                || refund.getRefundAmount().signum() <= 0) {
+            throw new BusinessException(409, "退款金额无效");
+        }
+        boolean alipayRefund = !alipayPayments.isEmpty();
+        if (alipayRefund) {
+            if (alipayPayments.size() != 1 || mockPaidAmount.signum() != 0
+                    || alipayPayments.get(0).getAmount() == null
+                    || alipayPayments.get(0).getAmount().compareTo(refund.getRefundAmount()) < 0) {
+                throw new BusinessException(409, "支付宝支付流水与退款金额不匹配，请核对后处理");
+            }
+        } else if (mockPaidAmount.compareTo(refund.getRefundAmount()) < 0) {
+            throw new BusinessException(409, "没有足额的成功支付记录，无法退款");
         }
 
+        // Check all inventory rows before any external money movement.
         List<RoomInventory> inventories = roomInventoryMapper.selectList(
                 new LambdaQueryWrapper<RoomInventory>()
                         .eq(RoomInventory::getRoomTypeId, order.getRoomTypeId())
@@ -147,6 +166,16 @@ public class AdminRefundServiceImpl implements AdminRefundService {
                     || inventory.getSoldQty() < order.getRoomCount()) {
                 throw new BusinessException(409, "已售库存数量不足，无法完成退款");
             }
+        }
+
+        String refundNo = alipayRefund
+                ? "RF" + String.format(Locale.ROOT, "%030d", refund.getRefundId())
+                : UUID.randomUUID().toString().replace("-", "").toUpperCase();
+        if (alipayRefund) {
+            alipayService.refund(alipayPayments.get(0), refund, refundNo);
+        }
+
+        for (RoomInventory inventory : inventories) {
             inventory.setSoldQty(inventory.getSoldQty() - order.getRoomCount());
             if (roomInventoryMapper.updateById(inventory) != 1) {
                 throw new BusinessException(500, "库存更新失败");
@@ -156,9 +185,9 @@ public class AdminRefundServiceImpl implements AdminRefundService {
         RefundPaymentRecord record = new RefundPaymentRecord();
         record.setRefundId(refund.getRefundId());
         record.setOrderId(order.getOrderId());
-        record.setRefundNo(UUID.randomUUID().toString().replace("-", "").toUpperCase());
+        record.setRefundNo(refundNo);
         record.setRefundAmount(refund.getRefundAmount());
-        record.setRefundMethod("MOCK");
+        record.setRefundMethod(alipayRefund ? "ALIPAY" : "MOCK");
         record.setRefundStatus("SUCCESS");
         record.setInventorySyncStatus("PENDING");
         record.setRefundedTime(LocalDateTime.now());
